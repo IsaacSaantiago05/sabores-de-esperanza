@@ -1,0 +1,292 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum RolUsuario {
+  ADMIN
+  DONADORA
+  BENEFICIADA
+  MODERADOR
+}
+
+enum EstadoEmpresa {
+  ACTIVA
+  INACTIVA
+  SUSPENDIDA
+  VERIFICACION_PENDIENTE
+}
+
+enum TipoComida {
+  FRUTAS
+  VERDURAS
+  LACTEOS
+  CARNES
+  PROCESADOS
+  BEBIDAS
+  PANES
+  OTRO
+}
+
+enum EstadoDonacion {
+  PENDIENTE
+  CONFIRMADA
+  ENTREGADA
+  CANCELADA
+  DEVUELTA
+}
+
+enum EstadoNotificacion {
+  NO_LEIDA
+  LEIDA
+  ARCHIVADA
+}
+
+// Models
+model Usuario {
+  id                String            @id @default(cuid())
+  email             String            @unique
+  password          String?
+  nombre            String
+  apellido          String
+  telefono          String?
+  telefonoSecundario String?
+  rol               RolUsuario        @default(DONADORA)
+  empresa           Empresa?          @relation("UsuarioPrincipal")
+  empresasAsociadas Empresa[]         @relation("UsuariosAsociados")
+  donacionesRegistradas Donacion[]    @relation("UsuarioRegistrador")
+  notificaciones    Notificacion[]
+  passwordResetToken PasswordResetToken?
+  activo            Boolean           @default(true)
+  emailVerificado   Boolean           @default(false)
+  ultimoLogin       DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([email])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  user      Usuario  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String   @unique
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model Empresa {
+  id                    String            @id @default(cuid())
+  nombre                String
+  email                 String            @unique
+  telefonoContacto      String
+  telefonoSecundario    String?
+  direccion             String
+  ciudad                String
+  departamento          String
+  pais                  String            @default("Colombia")
+  latitud               Float
+  longitud              Float
+  rubro                 String
+  personaContacto       String
+  cargoPersonaContacto  String?
+  tipoEmpresa           String            // "Donadora" o "Beneficiada"
+  
+  // Específico para Donadoras
+  tipoComidaDona        TipoComida[]
+  cantidadPromedioDona  Float?            // En Kg
+  frecuenciaDonaciones  String?           // "Diaria", "Semanal", "Mensual"
+  certificaciones       String?           // JSON con certificados
+  logoUrl               String?
+  
+  // Específico para Beneficiadas
+  tipoOrganizacion      String?           // "ONG", "Comedor", "Albergue", etc.
+  personasAtendidas     Int?
+  necesidadesEspecificas String?
+  horarioRecepcion      String?
+  fotoPerfil            String?
+  
+  // General
+  estado                EstadoEmpresa     @default(VERIFICACION_PENDIENTE)
+  usuarioPrincipal      Usuario           @relation("UsuarioPrincipal", fields: [usuarioPrincipalId], references: [id])
+  usuarioPrincipalId    String            @unique
+  usuariosAsociados     Usuario[]         @relation("UsuariosAsociados")
+  donacionesEnviadas    Donacion[]        @relation("EmpresaDonadora")
+  donacionesRecibidas   Donacion[]        @relation("EmpresaBeneficiada")
+  
+  historialDonaciones   HistorialDonacion[]
+  resenas               Resena[]
+  documentos            Documento[]
+  activo                Boolean           @default(true)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  @@index([tipoEmpresa])
+  @@index([estado])
+  @@index([latitud, longitud])
+}
+
+model Donacion {
+  id                  String            @id @default(cuid())
+  empresaDonadora     Empresa           @relation("EmpresaDonadora", fields: [empresaDonadoraId], references: [id])
+  empresaDonadoraId   String
+  empresaBeneficiada  Empresa           @relation("EmpresaBeneficiada", fields: [empresaBeneficiadaId], references: [id])
+  empresaBeneficiadaId String
+  
+  tipoComida          TipoComida
+  cantidadKg          Float
+  descripcion         String?
+  observaciones       String?
+  
+  estado              EstadoDonacion    @default(PENDIENTE)
+  fechaDonacion       DateTime
+  fechaEntrega        DateTime?
+  
+  usuarioRegistrador  Usuario           @relation("UsuarioRegistrador", fields: [usuarioRegistradorId], references: [id])
+  usuarioRegistradorId String
+  
+  fotosEvidencia      String[]          // URLs de fotos
+  documentosAdjuntos  Documento[]
+  historial           HistorialDonacion[]
+  
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([estado])
+  @@index([fechaDonacion])
+  @@index([empresaDonadoraId])
+  @@index([empresaBeneficiadaId])
+}
+
+model HistorialDonacion {
+  id                String            @id @default(cuid())
+  donacion          Donacion          @relation(fields: [donacionId], references: [id], onDelete: Cascade)
+  donacionId        String
+  
+  empresa           Empresa           @relation(fields: [empresaId], references: [id])
+  empresaId         String
+  
+  estadoAnterior    EstadoDonacion
+  estadoNuevo       EstadoDonacion
+  comentario        String?
+  cambiadoPor       String            // Email del usuario
+  
+  createdAt         DateTime          @default(now())
+
+  @@index([donacionId])
+}
+
+model Resena {
+  id                String            @id @default(cuid())
+  empresa           Empresa           @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  empresaId         String
+  
+  calificacion      Int               @default(5) // 1-5 estrellas
+  comentario        String
+  nombreAutor       String
+  emailAutor        String
+  
+  verificada        Boolean           @default(false)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([empresaId])
+}
+
+model Notificacion {
+  id                String            @id @default(cuid())
+  usuario           Usuario           @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuarioId         String
+  
+  tipo              String            // "Nueva_Donacion", "Confirmacion", etc.
+  titulo            String
+  mensaje           String
+  enlace            String?
+  
+  estado            EstadoNotificacion @default(NO_LEIDA)
+  leida             Boolean           @default(false)
+  
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([usuarioId])
+  @@index([estado])
+}
+
+model Documento {
+  id                String            @id @default(cuid())
+  empresa           Empresa?          @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  empresaId         String?
+  
+  donacion          Donacion?         @relation(fields: [donacionId], references: [id], onDelete: Cascade)
+  donacionId        String?
+  
+  nombre            String
+  tipo              String            // "PDF", "IMG", etc.
+  url               String
+  tamanio           Int               // En bytes
+  descripcion       String?
+  
+  createdAt         DateTime          @default(now())
+
+  @@index([empresaId])
+  @@index([donacionId])
+}
+
+model Estadistica {
+  id                String            @id @default(cuid())
+  
+  totalEmpresas     Int               @default(0)
+  totalEmpresasDonadoras Int          @default(0)
+  totalEmpresasBeneficiadas Int       @default(0)
+  
+  totalDonaciones   Int               @default(0)
+  totalKgDonados    Float             @default(0)
+  personasAtendidas Int               @default(0)
+  
+  donacionesEnMes   Int               @default(0)
+  kgEnMes           Float             @default(0)
+  
+  mesAno            String            // "2024-04"
+  
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@unique([mesAno])
+}
+
+model ConfiguracionSistema {
+  id                String            @id @default(cuid())
+  clave             String            @unique
+  valor             String
+  descripcion       String?
+  actualizado       DateTime          @updatedAt
+}
+
+// Para auditoría
+model AuditoriaLog {
+  id                String            @id @default(cuid())
+  usuarioEmail      String
+  accion            String
+  tabla             String
+  registroId        String
+  detalles          String?           // JSON
+  ipAddress         String?
+  userAgent         String?
+  
+  createdAt         DateTime          @default(now())
+
+  @@index([usuarioEmail])
+  @@index([createdAt])
+}
